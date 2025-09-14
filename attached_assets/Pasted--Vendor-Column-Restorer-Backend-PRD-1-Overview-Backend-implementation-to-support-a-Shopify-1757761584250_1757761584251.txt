@@ -1,0 +1,147 @@
+# Vendor Column Restorer — Backend PRD
+
+## 1 — Overview
+
+Backend implementation to support a Shopify Admin UI Extension that restores the **Vendor** column in the product list and enables vendor-based operations.
+
+---
+
+## 2 — Tech stack
+
+* **Runtime:** Node.js (TypeScript)
+* **Framework:** Shopify App (CLI v3), Koa/Express middleware
+* **Database:** PostgreSQL (for settings, logs)
+* **APIs:** Shopify Admin GraphQL API (products, bulk mutations)
+* **Hosting:** Shopify-managed hosting (default), or partner cloud
+
+---
+
+## 3 — Core backend responsibilities
+
+1. **Data access**
+
+   * Query products with vendor field using GraphQL
+   * Handle pagination (cursor-based)
+   * Cache/store recent vendor lists for faster filter population
+
+2. **Bulk vendor operations**
+
+   * Accept product IDs + target vendor
+   * Execute bulk mutation via GraphQL to update vendor field
+   * Provide job status callbacks / polling until success or failure
+
+3. **Export by vendor**
+
+   * Aggregate products by vendor (with applied filters)
+   * Generate CSV stream
+   * Serve downloadable file via signed URL
+
+4. **Settings & preferences**
+
+   * Persist column visibility preference per user/shop
+   * Store last used sort/filter options (optional, to enhance UX)
+
+5. **Analytics & logging**
+
+   * Record feature usage: column toggles, bulk edits, exports
+   * Error logging for API failures and job retries
+
+---
+
+## 4 — Data models
+
+```typescript
+// Stored in Postgres
+interface ShopSettings {
+  shopDomain: string;
+  showVendorColumn: boolean;
+  lastUpdated: Date;
+}
+
+interface BulkJob {
+  id: string;
+  shopDomain: string;
+  productIds: string[];
+  targetVendor: string;
+  status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+---
+
+## 5 — API endpoints (app → BE)
+
+**REST (or GraphQL inside app):**
+
+* `GET /api/vendors` → returns distinct vendor list (cached)
+* `POST /api/bulk-update-vendor` → body: `{ productIds: string[], vendor: string }`
+* `GET /api/bulk-jobs/:id` → returns job status
+* `POST /api/export` → body: `{ vendor?: string }`, returns signed CSV URL
+* `GET /api/settings` → returns shop settings
+* `POST /api/settings` → update shop settings
+
+---
+
+## 6 — Shopify API usage
+
+### Product query
+
+```graphql
+query GetProducts($first: Int!, $after: String, $query: String) {
+  products(first: $first, after: $after, query: $query) {
+    edges {
+      cursor
+      node { id title vendor status totalInventory productType }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+### Bulk mutation (vendor update)
+
+```graphql
+mutation bulkUpdateVendor($ids: [ID!]!, $vendor: String!) {
+  productBulkUpdate(productIds: $ids, vendor: $vendor) {
+    userErrors { field message }
+  }
+}
+```
+
+---
+
+## 7 — Performance expectations
+
+* Initial vendor list cache refresh ≤ 2s (for 100 products)
+* Bulk vendor update: async job with progress (target < 60s for 1000 products)
+* Export: stream CSV for up to 10k products without timeout
+
+---
+
+## 8 — Security & auth
+
+* OAuth 2.0 with Shopify (per shop)
+* Store tokens securely (encrypted at rest)
+* Signed URLs for CSV downloads (time-limited)
+* Rate limiting + exponential backoff for Shopify API errors
+
+---
+
+## 9 — Logging & monitoring
+
+* Log Shopify API call counts and failures
+* Track bulk job lifecycle
+* Instrument Prometheus metrics: request latency, job queue length, error counts
+* Alerts for job failure rates > 5%
+
+---
+
+## 10 — Next steps
+
+1. Scaffold backend service with Shopify App CLI
+2. Define DB schema for `ShopSettings` and `BulkJob`
+3. Implement `/vendors`, `/bulk-update-vendor`, and `/export`
+4. Add CSV export service with signed URL delivery
+5. Integrate monitoring + logs
