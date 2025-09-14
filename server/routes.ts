@@ -34,14 +34,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { shop } = req.query;
       
       if (!shop || typeof shop !== 'string') {
+        logger.error('OAuth initiation - Missing shop parameter', { query: req.query });
         return res.status(400).json({ error: 'Shop domain is required' });
       }
 
-      const clientId = process.env.SHOPIFY_CLIENT_ID || 'your_client_id';
+      // Validate shop domain format
+      if (!shop.includes('.myshopify.com')) {
+        logger.error('OAuth initiation - Invalid shop domain format', { shop });
+        return res.status(400).json({ error: 'Invalid shop domain format' });
+      }
+
+      const clientId = process.env.SHOPIFY_CLIENT_ID;
+      if (!clientId) {
+        logger.error('OAuth initiation - Missing SHOPIFY_CLIENT_ID environment variable');
+        return res.status(500).json({ error: 'Application configuration error' });
+      }
+
       const redirectUri = `${process.env.NODE_ENV === 'production' ? 
         `https://${req.get('host')}` : 
         `http://${req.get('host')}`}/auth/callback`;
       const scopes = ['read_products', 'write_products'];
+      
+      logger.info('OAuth initiation started', { shop, redirectUri });
       
       const { authUrl } = authService.generateShopifyAuthUrl(
         shop,
@@ -55,6 +69,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       logger.error('Failed to initiate OAuth', {
         shop: req.query.shop,
         error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
       });
       res.status(500).json({ error: 'Failed to initiate authentication' });
     }
@@ -65,7 +80,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { code, shop, state, hmac } = req.query;
       
+      logger.info('OAuth callback received', { 
+        shop, 
+        hasCode: !!code, 
+        hasState: !!state, 
+        hasHmac: !!hmac 
+      });
+      
       if (!code || !shop || !state) {
+        logger.error('OAuth callback - Missing required parameters', { 
+          code: !!code, 
+          shop: !!shop, 
+          state: !!state 
+        });
         return res.status(400).json({ error: 'Missing required parameters' });
       }
 
@@ -89,12 +116,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!authService.validateShopifyHmac(req.url?.split('?')[1] || '', hmac as string)) {
         logger.error('OAuth callback - Invalid HMAC signature', {
           shop: shop as string,
+          url: req.url,
         });
         return res.status(400).json({ error: 'Invalid request signature' });
       }
 
-      const clientId = process.env.SHOPIFY_CLIENT_ID || 'your_client_id';
-      const clientSecret = process.env.SHOPIFY_CLIENT_SECRET || 'your_client_secret';
+      const clientId = process.env.SHOPIFY_CLIENT_ID;
+      const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
+      
+      if (!clientId || !clientSecret) {
+        logger.error('OAuth callback - Missing Shopify credentials', {
+          hasClientId: !!clientId,
+          hasClientSecret: !!clientSecret,
+        });
+        return res.status(500).json({ error: 'Application configuration error' });
+      }
       
       const tokenData = await authService.exchangeCodeForToken(
         shop as string,
@@ -117,13 +153,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Redirect to frontend with session - fix route to match App.tsx
       const frontendUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
-      res.redirect(`${frontendUrl}/?shop=${shop}&session=${sessionId}&installed=true`);
+      const redirectUrl = `${frontendUrl}/?shop=${shop}&session=${sessionId}&installed=true`;
+      
+      logger.info('OAuth callback successful, redirecting', { 
+        shop, 
+        redirectUrl: redirectUrl.replace(sessionId, '[REDACTED]') 
+      });
+      
+      res.redirect(redirectUrl);
     } catch (error) {
       logger.authFailure(
         req.query.shop as string || 'unknown',
         error instanceof Error ? error.message : 'Unknown error'
       );
-      res.status(500).json({ error: 'Authentication failed' });
+      
+      // Provide more specific error information
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('OAuth callback failed', {
+        shop: req.query.shop,
+        error: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      
+      res.status(500).json({ 
+        error: 'Authentication failed',
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+      });
     }
   });
 
