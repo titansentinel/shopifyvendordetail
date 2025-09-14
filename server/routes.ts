@@ -330,6 +330,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Configuration check endpoint (for debugging)
+  app.get('/api/config-check', async (req, res) => {
+    const config = {
+      hasClientId: !!process.env.SHOPIFY_CLIENT_ID,
+      hasClientSecret: !!process.env.SHOPIFY_CLIENT_SECRET,
+      hasSessionSecret: !!process.env.SESSION_SECRET,
+      hasDatabaseUrl: !!process.env.DATABASE_URL,
+      nodeEnv: process.env.NODE_ENV,
+      frontendUrl: process.env.FRONTEND_URL,
+    };
+    
+    logger.info('Configuration check', config);
+    
+    res.json({
+      status: 'ok',
+      config: {
+        ...config,
+        // Don't expose actual secrets
+        clientId: config.hasClientId ? 'SET' : 'MISSING',
+        clientSecret: config.hasClientSecret ? 'SET' : 'MISSING',
+        sessionSecret: config.hasSessionSecret ? 'SET' : 'MISSING',
+        databaseUrl: config.hasDatabaseUrl ? 'SET' : 'MISSING',
+      }
+    });
+  });
+
   // Get distinct vendor list (cached)
   app.get('/api/vendors', shopifyApiLimiter.middleware(), async (req, res) => {
     try {
@@ -666,7 +692,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/settings', async (req, res) => {
     try {
       // SECURITY FIX: Use authenticated shop domain from middleware
-      const shopDomain = req.shopDomain!;
+      const shopDomain = req.shopDomain;
+
+      // Add validation to ensure shopDomain is not undefined
+      if (!shopDomain) {
+        logger.error('GET /api/settings - shopDomain is undefined', {
+          path: req.path,
+          method: req.method,
+          query: req.query,
+        });
+        return res.status(500).json({ 
+          error: 'Authentication error: Shop domain not found',
+          code: 'MISSING_SHOP_DOMAIN'
+        });
+      }
 
       let settings = await storage.getShopSettings(shopDomain);
       
@@ -687,7 +726,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       logger.error('Failed to get settings', {
+        shopDomain: req.shopDomain,
         error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
       });
       res.status(500).json({ error: 'Failed to fetch settings' });
     }
@@ -702,7 +743,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { showVendorColumn } = schema.parse(req.body);
       // SECURITY FIX: Use authenticated shop domain from middleware
-      const shopDomain = req.shopDomain!;
+      const shopDomain = req.shopDomain;
+
+      // Add validation to ensure shopDomain is not undefined
+      if (!shopDomain) {
+        logger.error('POST /api/settings - shopDomain is undefined', {
+          path: req.path,
+          method: req.method,
+          query: req.query,
+          body: req.body,
+        });
+        return res.status(500).json({ 
+          error: 'Authentication error: Shop domain not found',
+          code: 'MISSING_SHOP_DOMAIN'
+        });
+      }
+
+      logger.info('Updating shop settings', { shopDomain, showVendorColumn });
 
       const updatedSettings = await storage.upsertShopSettings(shopDomain, {
         showVendorColumn,
@@ -722,7 +779,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       logger.error('Failed to update settings', {
+        shopDomain: req.shopDomain,
         error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
       });
       res.status(500).json({ error: 'Failed to update settings' });
     }
