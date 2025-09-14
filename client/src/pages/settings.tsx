@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getQueryFn } from "@/lib/queryClient";
 
 interface ShopSettings {
   shopDomain: string;
@@ -22,7 +22,8 @@ export default function Settings() {
   const queryClient = useQueryClient();
 
   const { data: settings, isLoading } = useQuery<ShopSettings>({
-    queryKey: ['/api/settings', shopDomain],
+    queryKey: ['/api/settings'],
+    queryFn: getQueryFn({ on401: "throw" }),
     enabled: !!shopDomain,
   });
 
@@ -64,7 +65,7 @@ export default function Settings() {
       return;
     }
     
-    queryClient.invalidateQueries({ queryKey: ['/api/settings', shopDomain] });
+      queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
   };
 
   const handleSaveSettings = () => {
