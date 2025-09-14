@@ -186,7 +186,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const requireShopAuth = async (req: any, res: any, next: any) => {
     // Skip auth for truly public endpoints
     const publicEndpoints = [
-      '/api/health'
+      '/api/health',
+      '/api/config-check',
+      '/api/debug-auth'
     ];
     
     if (publicEndpoints.includes(req.path)) {
@@ -353,6 +355,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sessionSecret: config.hasSessionSecret ? 'SET' : 'MISSING',
         databaseUrl: config.hasDatabaseUrl ? 'SET' : 'MISSING',
       }
+    });
+  });
+
+  // Debug endpoint to check authentication status (before auth middleware)
+  app.get('/api/debug-auth', async (req, res) => {
+    const { shop, shopDomain, session } = req.query;
+    const clientShopDomain = shop || shopDomain;
+    
+    logger.info('Debug auth endpoint called', {
+      path: req.path,
+      query: req.query,
+      hasShop: !!shop,
+      hasShopDomain: !!shopDomain,
+      hasSession: !!session,
+      clientShopDomain,
+    });
+    
+    res.json({
+      status: 'debug',
+      query: req.query,
+      hasShop: !!shop,
+      hasShopDomain: !!shopDomain,
+      hasSession: !!session,
+      clientShopDomain,
+      message: 'This endpoint is not protected by auth middleware'
     });
   });
 
