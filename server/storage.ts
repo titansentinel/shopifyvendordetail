@@ -20,6 +20,7 @@ export interface IStorage {
   getShopSettings(shopDomain: string): Promise<ShopSettings | undefined>;
   createShopSettings(settings: InsertShopSettings): Promise<ShopSettings>;
   updateShopSettings(shopDomain: string, settings: Partial<InsertShopSettings>): Promise<ShopSettings>;
+  upsertShopSettings(shopDomain: string, settings: Partial<InsertShopSettings>): Promise<ShopSettings>;
 
   // Bulk job methods
   createBulkJob(job: InsertBulkJob): Promise<BulkJob>;
@@ -93,6 +94,22 @@ export class DatabaseStorage implements IStorage {
       .where(eq(shopSettings.shopDomain, shopDomain))
       .returning();
     return updatedSettings;
+  }
+
+  async upsertShopSettings(shopDomain: string, updates: Partial<InsertShopSettings>): Promise<ShopSettings> {
+    // First try to update existing settings
+    const existingSettings = await this.getShopSettings(shopDomain);
+    
+    if (existingSettings) {
+      return await this.updateShopSettings(shopDomain, updates);
+    } else {
+      // Create new settings with provided updates and defaults
+      return await this.createShopSettings({
+        shopDomain,
+        showVendorColumn: true, // Default value
+        ...updates,
+      });
+    }
   }
 
   async createBulkJob(job: InsertBulkJob): Promise<BulkJob> {

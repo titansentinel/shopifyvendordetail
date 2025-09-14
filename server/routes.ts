@@ -668,10 +668,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // SECURITY FIX: Use authenticated shop domain from middleware
       const shopDomain = req.shopDomain!;
 
-      const settings = await storage.getShopSettings(shopDomain);
+      let settings = await storage.getShopSettings(shopDomain);
       
+      // If settings don't exist, create default settings
       if (!settings) {
-        return res.status(404).json({ error: 'Shop settings not found' });
+        logger.info('Creating default settings for shop', { shopDomain });
+        settings = await storage.createShopSettings({
+          shopDomain,
+          showVendorColumn: true, // Default value
+        });
       }
 
       // Return settings without sensitive data
@@ -699,7 +704,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // SECURITY FIX: Use authenticated shop domain from middleware
       const shopDomain = req.shopDomain!;
 
-      const updatedSettings = await storage.updateShopSettings(shopDomain, {
+      const updatedSettings = await storage.upsertShopSettings(shopDomain, {
         showVendorColumn,
       });
 
