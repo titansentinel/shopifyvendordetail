@@ -158,12 +158,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return next();
     }
 
+    // Add debugging for authentication issues
+    logger.info('Auth middleware processing', {
+      path: req.path,
+      query: req.query,
+      method: req.method
+    });
+
     // SECURITY FIX: Require valid session for ALL protected endpoints
     // Accept both 'shop' and 'shopDomain' for consistency with frontend
     const { shop, shopDomain, session } = req.query;
     const clientShopDomain = shop || shopDomain;
     
     if (!clientShopDomain || !session) {
+      logger.warn('Missing authentication parameters', {
+        path: req.path,
+        shop,
+        shopDomain,
+        session: session ? 'present' : 'missing'
+      });
       return res.status(401).json({ 
         error: 'Authentication required. Shop domain and session are required.',
         code: 'MISSING_SESSION'
@@ -174,6 +187,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const sessionShopDomain = authService.validateSession(session as string);
     
     if (!sessionShopDomain || sessionShopDomain !== clientShopDomain) {
+      logger.warn('Invalid session', {
+        path: req.path,
+        clientShopDomain,
+        sessionShopDomain,
+        session: session ? 'present' : 'missing'
+      });
       return res.status(401).json({ 
         error: 'Invalid or expired session. Please re-authenticate.',
         code: 'INVALID_SESSION'
@@ -183,6 +202,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Additional security: Verify shop still has valid access tokens
     const hasValidAccess = await authService.validateShopAccess(sessionShopDomain);
     if (!hasValidAccess) {
+      logger.warn('Shop access validation failed', {
+        path: req.path,
+        shopDomain: sessionShopDomain
+      });
       return res.status(401).json({ 
         error: 'Shop authentication expired. Please complete OAuth setup again.',
         code: 'EXPIRED_CREDENTIALS'
@@ -190,6 +213,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     req.shopDomain = sessionShopDomain;
+    logger.info('Authentication successful', {
+      path: req.path,
+      shopDomain: sessionShopDomain
+    });
     next();
   };
 

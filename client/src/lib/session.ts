@@ -28,7 +28,8 @@ export interface SessionInfo {
       return '';
     }
     
-    return `shopDomain=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}`;
+    // Fix: Use 'shop' parameter name to match server middleware expectations
+    return `shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}`;
   }
   
   /**
